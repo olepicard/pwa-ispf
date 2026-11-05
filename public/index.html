@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="description" content="lspf : clone du Dialogue Manager ISPF (panneaux, éditeur, macros REXX) pour Android">
+  <title>lspf</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="wrap"><canvas id="screen" role="img" aria-label="Écran lspf"></canvas></div>
+  <textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+            enterkeyhint="enter" aria-label="Saisie clavier"></textarea>
+  <div id="bar">
+    <div class="row" id="fkeys"></div>
+    <div class="row" id="keys"></div>
+  </div>
+  <div id="menu" hidden></div>
+  <div id="overlay" hidden>Chargement de lspf…</div>
+  <div id="toast" hidden></div>
+  <input type="file" id="importFiles" multiple hidden>
+  <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+  <noscript>lspf nécessite JavaScript.</noscript>
+  <script src="lspf-bundle.js"></script>
+</body>
+</html>
