@@ -1,6 +1,6 @@
 // lspf PWA service worker: the application works offline once installed.
 // The version and the list of files are filled in by build.js (the cache name changes with the content).
-const CACHE = 'lspf-pwa-801ded2899e0';
+const CACHE = 'lspf-pwa-7290756abcce';
 const FILES = ["./","index.html","app.css","lspf-bundle.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png"];
 
 self.addEventListener('install', (e) => {

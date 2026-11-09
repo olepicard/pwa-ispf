@@ -47,12 +47,15 @@ Les flèches, Tab, Del et ⌫ se répètent si on les maintient.
 
 | Geste | Effet |
 |---|---|
-| toucher | place le curseur (comme un clic, donc `MOUSE LEFT F4` fonctionne : toucher un mot lance F4). Sur `F4=…` dans les lignes de touches de l'écran : appuie sur la touche |
+| toucher | équivaut à un clic : place le curseur (donc `MOUSE LEFT F4` fonctionne : toucher un mot lance F4). Sur `F4=…` dans les lignes de touches de l'écran : appuie sur la touche. Sur un champ point-and-shoot : Entrée à cet endroit |
+| toucher un nom dans la liste 3.4 | `V` sur l'entrée : VIEW du fichier, liste du répertoire (`..` remonte), visualiseur pour un fichier XMIT |
+| toucher un en-tête de colonne de la liste 3.4 | tri descendant sur cette colonne ; un second toucher inverse l'ordre |
 | double toucher | double-clic (`MOUSE DOUBLE …`) |
 | appui long | Entrée à cet endroit (point-and-shoot), comme le clic droit |
 | glisser horizontal | décale l'affichage à gauche ou à droite dans EDIT, VIEW et BROWSE |
 | glisser vertical | fait défiler (UP / DOWN) |
-| deux doigts | déplacer la vue ; pincer pour changer la taille du texte |
+| deux doigts qui glissent | déplacer la vue |
+| deux doigts qui s'écartent / se rapprochent | zoom avant / arrière. L'écran suit les doigts pendant le geste ; la nouvelle taille de texte est appliquée quand on les relève (de 50 % à 300 %), le point pincé reste sous les doigts, et un message indique la taille et le nombre de lignes et colonnes. En zoom avant, l'écran 80 × 24 dépasse : on le déplace à deux doigts. En zoom arrière, l'écran gagne des colonnes |
 
 **Bouton Retour d'Android** : F3 (END). Sur le menu principal, F3 termine la session ; toucher l'écran la relance.
 
@@ -104,7 +107,7 @@ public/              index.html, app.css, manifest.webmanifest
 src/main.js          démarrage, cycle de vie de la session, barre de touches, menu, import / export / sauvegarde
 src/webterm.js       terminal canvas (même interface que lib/terminal.js de node-lspf) et gestes tactiles
 src/input.js         clavier physique (keydown) et clavier virtuel Android (textarea + différences)
-src/vfs.js           système de fichiers virtuel synchrone, persistance IndexedDB
+src/vfs.js           système de fichiers virtuel synchrone (avec descripteurs en lecture et Buffer), persistance IndexedDB
 src/shims/           fs, path, os, events, process, child_process pour le navigateur
 src/loader.js        chargeur de modules CommonJS du bundle
 src-sw/sw.js         service worker (cache hors connexion)

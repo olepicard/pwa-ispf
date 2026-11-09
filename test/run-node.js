@@ -128,6 +128,73 @@ function load() {
     assert.ok(writes.includes('/home/lspf/exemples/PROG01.cbl'));
     term.key('f3'); await tick();
   });
+  await test('Buffer API and file descriptors of the shims (XMIT, AMBLIST, SRCHFOR)', () => {
+    const fsm = req('fs');
+    const B = req('/pwa/vfs.js').VBuffer;
+    const b = B.from([0x12, 0x34, 0x56, 0x78, 0x9a, 0x25, 0x50, 0x44, 0x46]);
+    assert.strictEqual(b.readUInt16BE(0), 0x1234);
+    assert.strictEqual(b.readUInt32BE(1), 0x34567890 + 0x0a);
+    assert.strictEqual(b.toString('hex', 1, 3), '3456');
+    assert.strictEqual(b.indexOf('%PDF'), 5);
+    assert.strictEqual(b.indexOf(0x56), 2);
+    assert.ok(b.subarray(5, 9).equals(B.from('%PDF')));
+    const w = B.alloc(4, 0x40);
+    w.writeUInt16BE(0xc1c2, 1);
+    assert.deepStrictEqual([...w], [0x40, 0xc1, 0xc2, 0x40]);
+    fsm.writeFileSync('/home/lspf/fd.bin', b);
+    const fd = fsm.openSync('/home/lspf/fd.bin', 'r');
+    const h = B.alloc(4);
+    assert.strictEqual(fsm.readSync(fd, h, 0, 4, 2), 4);
+    assert.strictEqual(h.toString('hex'), '56789a25');
+    fsm.closeSync(fd);
+    assert.throws(() => fsm.openSync('/home/lspf/fd.bin', 'w'), /EROFS/);
+    assert.ok(fsm.statSync('/home/lspf/fd.bin').birthtimeMs > 0);
+    fsm.unlinkSync('/home/lspf/fd.bin');
+  });
+  await test('3.4: XMIT files (viewer, AMBLIST), SRCHFOR, sort by a heading, a click on a name views it', async () => {
+    const gen = require(path.join(__dirname, '..', '..', 'node-lspf', 'test', 'xmitgen.js'));
+    const fsm = req('fs');
+    fsm.mkdirSync('/home/lspf/xm', { recursive: true });
+    fsm.writeFileSync('/home/lspf/xm/lib.xmi', new Uint8Array(gen.pdsXmit()));
+    fsm.writeFileSync('/home/lspf/xm/load.xmi', new Uint8Array(gen.lmodXmit()));
+    fsm.writeFileSync('/home/lspf/xm/note.txt', 'Bonjour le monde\nhello again\n');
+    await cmd('3.4');
+    await cmd('cd ~/xm');
+    const rowOf = (s) => term.text().split('\n').findIndex(l => l.includes(s));
+    const clickOn = async (s) => { const r = rowOf(s); term.click(r, term.text().split('\n')[r].indexOf(s) + 1); await tick(80); await tick(600); };
+    assert.match(term.text(), /lib\.xmi +Xmit/);
+    assert.match(term.text(), /load\.xmi +Xmit/);
+    // a click on the name of an XMIT file opens the XMIT viewer
+    await clickOn('lib.xmi');
+    assert.match(term.text(), /XMIT File Viewer/);
+    assert.match(term.text(), /ALPHA +Text +2/);
+    term.click(rowOf('ALPHA'), 1); term.type('b'); term.key('enter'); await tick(80);
+    assert.match(term.text(), /HELLO FROM ALPHA/);
+    term.key('f3'); await tick();
+    term.key('f3'); await tick();
+    // AMBLIST of a load module
+    await clickOn('load.xmi');
+    term.click(rowOf('MAIN '), 1); term.type('i'); term.key('enter'); await tick(80);
+    assert.match(term.text(), /MODULE SUMMARY/);
+    term.key('f3'); await tick();
+    term.key('f3'); await tick();
+    // SRCHFOR in the files and in the XMIT members
+    await cmd("srchfor 'hello'");
+    assert.match(term.text(), /'hello' found in 2 file/);
+    assert.match(term.text(), /lib\.xmi +\*Found 1/);
+    // a click on the Size heading sorts the list (descending)
+    const h = term.text().split('\n')[10];
+    term.click(10, h.indexOf('Size')); await tick(80); await tick(600);
+    assert.match(term.text().split('\n')[10], /Size ▼/);
+    // a click on a text file name: VIEW
+    await clickOn('note.txt');
+    assert.match(term.text(), /VIEW .*note\.txt/);
+    assert.match(term.text(), /Bonjour le monde/);
+    term.key('f3'); await tick();
+    assert.match(term.text(), /note\.txt +Viewed/);
+    term.key('f3'); await tick();
+    assert.match(term.text(), /Option ===>/);
+  });
   await test('system commands are reported as unavailable', async () => {
     await cmd('tso ls');
     assert.match(term.text(), /PWA|127/);

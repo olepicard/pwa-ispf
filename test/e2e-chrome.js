@@ -219,6 +219,56 @@ async function test(name, fn) {
     await cdp.eval('history.back()');
     await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'back to the menu');
   });
+  await test('tap = click: a tap on a file name views it (V), a tap on a column heading sorts the list', async () => {
+    await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'menu');
+    await tapCell(3, 14); await softType('3.4'); await enter();
+    await cdp.waitFor("LSPF.text().includes('LISEZMOI.txt')", 5000, 'file list');
+    let t = (await text()).split('\n');
+    let r = t.findIndex(l => l.includes('LISEZMOI.txt'));
+    await tapCell(r, t[r].indexOf('LISEZMOI.txt') + 2);
+    await cdp.waitFor("/VIEW .*LISEZMOI\\.txt/i.test(LSPF.text())", 5000, 'VIEW of the tapped file');
+    await shot('8-tap-view');
+    await key('F3', 'F3', 114);
+    await cdp.waitFor("/LISEZMOI\\.txt +Viewed/.test(LSPF.text())", 5000, 'back to the list');
+    t = (await text()).split('\n');
+    r = t.findIndex(l => /Command +Entry name/.test(l));
+    await tapCell(r, t[r].indexOf('Size') + 1);
+    await cdp.waitFor("LSPF.text().includes('Size ▼')", 5000, 'sorted by size');
+    await sleep(600);
+    await tapCell(r, t[r].indexOf('Entry') + 1);    // back to the order by name, descending
+    await cdp.waitFor("LSPF.text().includes('Entry name ▼')", 5000, 'sorted by name');
+    await sleep(600);
+    await tapCell(r, t[r].indexOf('Entry') + 1);    // second tap: ascending
+    await cdp.waitFor("LSPF.text().includes('Entry name ▲')", 5000, 'sorted by name, ascending');
+  });
+  await test('two fingers: spread = zoom in (live preview), pinch = zoom out', async () => {
+    const g0 = await geo();
+    const c = { x: g0.x + 40 * g0.cw, y: g0.y + 12 * g0.ch };
+    const pinch = async (d0, d1, steps = 10, mid) => {
+      await touch('touchStart', [{ x: c.x - d0 / 2, y: c.y }, { x: c.x + d0 / 2, y: c.y }]);
+      for (let i = 1; i <= steps; i++) {
+        const d = d0 + (d1 - d0) * i / steps;
+        await touch('touchMove', [{ x: c.x - d / 2, y: c.y }, { x: c.x + d / 2, y: c.y }]);
+        await sleep(15);
+        if (i === steps && mid) await mid();
+      }
+      await touch('touchEnd', []);
+      await sleep(400);
+    };
+    let preview = '';
+    await pinch(120, 260, 10, async () => { preview = await cdp.eval("document.getElementById('screen').style.transform"); });
+    assert.match(preview, /scale\(2\.1/);                       // the screen follows the fingers
+    const g1 = await geo();
+    assert.ok(g1.fs > g0.fs * 1.5, `font ${g0.fs} -> ${g1.fs}`);
+    assert.strictEqual(await cdp.eval("document.getElementById('screen').style.transform"), '');
+    await shot('9-zoom-in');
+    await pinch(260, 120);
+    const g2 = await geo();
+    assert.ok(g2.fs < g1.fs, `font ${g1.fs} -> ${g2.fs}`);
+    await cdp.eval('LSPF.state.term.setFontScale(1)');
+    await key('F3', 'F3', 114);
+    await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'menu');
+  });
   await test('menu: opens, closes; offline start from the service worker cache', async () => {
     await button('.k-menu');
     assert.ok(await cdp.eval("!document.getElementById('menu').hidden"));

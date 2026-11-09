@@ -44,15 +44,46 @@ function encode(s, enc) {
   }
 }
 
-// Uint8Array with Node Buffer's toString(encoding)
+// Uint8Array with the part of Node's Buffer API used by lspf (text, XMIT files, load modules, SRCHFOR)
 class VBuffer extends Uint8Array {
-  toString(enc) { return decode(this, enc); }
+  toString(enc, start, end) {
+    return decode(start !== undefined || end !== undefined ? this.subarray(start || 0, end === undefined ? this.length : end) : this, enc);
+  }
+  equals(o) {
+    if (!o || o.length !== this.length) return false;
+    for (let i = 0; i < this.length; i++) if (this[i] !== o[i]) return false;
+    return true;
+  }
+  // indexOf / includes accept a byte, a string (UTF-8) or bytes, like Buffer
+  indexOf(v, from = 0, enc) {
+    if (typeof v === 'number') return Uint8Array.prototype.indexOf.call(this, v & 255, from);
+    const n = typeof v === 'string' ? encode(v, enc) : v;
+    if (!n.length) return Math.min(from, this.length);
+    outer: for (let i = Math.max(0, from); i <= this.length - n.length; i++) {
+      for (let k = 0; k < n.length; k++) if (this[i + k] !== n[k]) continue outer;
+      return i;
+    }
+    return -1;
+  }
+  includes(v, from, enc) { return this.indexOf(v, from, enc) >= 0; }
+  readUInt8(o = 0) { return this[o]; }
+  readUInt16BE(o = 0) { return (this[o] << 8) | this[o + 1]; }
+  readUInt16LE(o = 0) { return this[o] | (this[o + 1] << 8); }
+  readUInt32BE(o = 0) { return ((this[o] << 24) >>> 0) + ((this[o + 1] << 16) | (this[o + 2] << 8) | this[o + 3]); }
+  readUInt32LE(o = 0) { return ((this[o + 3] << 24) >>> 0) + ((this[o + 2] << 16) | (this[o + 1] << 8) | this[o]); }
+  readInt16BE(o = 0) { const v = this.readUInt16BE(o); return v & 0x8000 ? v - 0x10000 : v; }
+  readInt32BE(o = 0) { return this.readUInt32BE(o) | 0; }
+  writeUInt8(v, o = 0) { this[o] = v; return o + 1; }
+  writeUInt16BE(v, o = 0) { this[o] = (v >>> 8) & 255; this[o + 1] = v & 255; return o + 2; }
+  writeUInt32BE(v, o = 0) { this[o] = (v >>> 24) & 255; this[o + 1] = (v >>> 16) & 255; this[o + 2] = (v >>> 8) & 255; this[o + 3] = v & 255; return o + 4; }
+  copy(target, ts = 0, ss = 0, se = this.length) { const part = this.subarray(ss, se); target.set(part, ts); return part.length; }
   static from(x, enc) {
     if (typeof x === 'string') { const b = encode(x, enc); const v = new VBuffer(b.length); v.set(b); return v; }
+    if (x instanceof ArrayBuffer) return new VBuffer(x);
     const v = new VBuffer(x.length); v.set(x); return v;
   }
   static isBuffer(x) { return x instanceof Uint8Array; }
-  static alloc(n) { return new VBuffer(n); }
+  static alloc(n, fill) { const v = new VBuffer(n); if (fill) v.fill(typeof fill === 'string' ? fill.charCodeAt(0) : fill); return v; }
   static concat(list) {
     const n = list.reduce((s, b) => s + b.length, 0);
     const v = new VBuffer(n);
@@ -85,6 +116,9 @@ class Stats {
     this.atime = new Date(n.mtime);
     this.birthtime = new Date(n.ctime || n.mtime);
     this.mtimeMs = n.mtime;
+    this.ctimeMs = n.mtime;
+    this.atimeMs = n.mtime;
+    this.birthtimeMs = n.ctime || n.mtime;
     this.mode = n.type === 'dir' ? 0o40755 : (n.ro ? 0o100444 : 0o100644);
     this.uid = 1000; this.gid = 1000; this.nlink = 1; this.dev = 1; this.ino = 0; this.blksize = 4096;
     this.blocks = Math.ceil(this.size / 512);
@@ -366,6 +400,35 @@ class VFS {
   accessSync(p) {
     const a = this.abs(p);
     if (!this.nodes.has(a)) throw fsError('ENOENT', 'access', a);
+  }
+
+  // File descriptors: read only (used to read the first bytes of a file, e.g. XMIT detection)
+  openSync(p, flags = 'r') {
+    const a = this.abs(p);
+    if (!/^rs?\+?$/.test(String(flags)) || String(flags).includes('+')) throw fsError('EROFS', 'open', a);
+    const n = this.nodes.get(a);
+    if (!n) throw fsError('ENOENT', 'open', a);
+    if (n.type === 'dir') throw fsError('EISDIR', 'open', a);
+    if (!this.fds) { this.fds = new Map(); this.nextFd = 3; }
+    const fd = this.nextFd++;
+    this.fds.set(fd, { path: a, pos: 0 });
+    return fd;
+  }
+
+  readSync(fd, buffer, offset = 0, length = buffer.length - offset, position = null) {
+    if (typeof offset === 'object' && offset !== null) ({ offset = 0, length = buffer.length - offset, position = null } = offset);
+    const f = this.fds && this.fds.get(fd);
+    if (!f) { const e = new Error('EBADF: bad file descriptor, read'); e.code = 'EBADF'; throw e; }
+    const n = this.nodes.get(f.path);
+    const pos = position === null || position === undefined ? f.pos : position;
+    const chunk = n ? n.data.subarray(pos, pos + length) : new Uint8Array(0);
+    buffer.set(chunk, offset);
+    if (position === null || position === undefined) f.pos += chunk.length;
+    return chunk.length;
+  }
+
+  closeSync(fd) {
+    if (!this.fds || !this.fds.delete(fd)) { const e = new Error('EBADF: bad file descriptor, close'); e.code = 'EBADF'; throw e; }
   }
 
   // All user files (for backups): [{ path, type, data }]

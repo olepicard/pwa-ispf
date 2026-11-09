@@ -6,7 +6,7 @@ const { instance: vfs } = require('../vfs');
 
 const API = ['existsSync', 'statSync', 'lstatSync', 'readFileSync', 'writeFileSync', 'appendFileSync', 'readdirSync',
   'mkdirSync', 'mkdtempSync', 'unlinkSync', 'rmdirSync', 'rmSync', 'renameSync', 'copyFileSync', 'cpSync',
-  'realpathSync', 'accessSync'];
+  'realpathSync', 'accessSync', 'openSync', 'readSync', 'closeSync'];
 
 const fs = {};
 for (const f of API) fs[f] = vfs[f].bind(vfs);

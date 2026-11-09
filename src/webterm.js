@@ -87,6 +87,17 @@ class WebTerminal extends EventEmitter {
     this.fit(true);
   }
 
+  // Zoom (pinch): new font scale, the point that was under the fingers stays under them
+  // (p = { ox, oy, w0, h0 } point in the canvas and canvas size before, mx / my = fingers on the screen)
+  zoomAt(scale, p) {
+    this.setFontScale(scale);
+    const cr = this.canvas.getBoundingClientRect(), wr = this.wrap.getBoundingClientRect();
+    const fx = p.w0 ? p.ox / p.w0 : 0, fy = p.h0 ? p.oy / p.h0 : 0;
+    this.wrap.scrollLeft = Math.max(0, fx * cr.width - (p.mx - wr.left));
+    this.wrap.scrollTop = Math.max(0, fy * cr.height - (p.my - wr.top));
+    this.emit('zoom', this.fontScale);
+  }
+
   // Compute font size, cell size, rows and columns from the space available.
   // The number of rows is only reduced when the width changes (keyboard opening does not re-layout the panels).
   fit(force) {
@@ -252,7 +263,12 @@ class WebTerminal extends EventEmitter {
       if (this.single) { clearTimeout(this.single.timer); if (this.single.mode === 'h') this.emitKey({ name: 'mouseup', button: 0, row: this.single.cell.row, col: this.single.lastCol }); }
       this.single = null;
       const [a, b] = [...this.touches.values()];
-      this.two = { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d0: Math.hypot(a.x - b.x, a.y - b.y), scale0: this.fontScale };
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const cr = this.canvas.getBoundingClientRect();
+      // point of the screen under the fingers (canvas coordinates): it stays under the fingers while zooming
+      this.two = { mx, my, d0: Math.hypot(a.x - b.x, a.y - b.y), scale0: this.fontScale, ratio: 1,
+        ox: mx - cr.left, oy: my - cr.top, w0: cr.width, h0: cr.height };
+      this.canvas.style.transformOrigin = `${this.two.ox}px ${this.two.oy}px`;
       return;
     }
     if (this.touches.size > 2) return;
@@ -285,7 +301,10 @@ class WebTerminal extends EventEmitter {
       this.wrap.scrollLeft -= mx - this.two.mx;
       this.wrap.scrollTop -= my - this.two.my;
       this.two.mx = mx; this.two.my = my;
-      this.two.ratio = Math.hypot(a.x - b.x, a.y - b.y) / (this.two.d0 || 1);
+      // pinch: live preview (the canvas is scaled), the font size is applied when the fingers are lifted
+      const lim = (r) => Math.max(0.5 / this.two.scale0, Math.min(3 / this.two.scale0, r));
+      this.two.ratio = lim(Math.hypot(a.x - b.x, a.y - b.y) / (this.two.d0 || 1));
+      this.canvas.style.transform = Math.abs(this.two.ratio - 1) > 0.02 ? `scale(${this.two.ratio})` : '';
       return;
     }
     const st = this.single;
@@ -324,9 +343,11 @@ class WebTerminal extends EventEmitter {
     this.touches.delete(e.pointerId);
     if (this.two) {
       if (this.touches.size === 0) {
-        const ratio = this.two.ratio || 1;
-        if (Math.abs(ratio - 1) > 0.15) this.setFontScale(this.two.scale0 * ratio);
+        const two = this.two;
         this.two = null;
+        this.canvas.style.transform = '';
+        const ratio = two.ratio || 1;
+        if (Math.abs(ratio - 1) > 0.05) this.zoomAt(two.scale0 * ratio, two);
       }
       return;
     }

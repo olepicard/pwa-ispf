@@ -442,6 +442,7 @@ async function boot() {
   });
   state.input = new KeyInput(state.term, $('kbd'));
   state.term.on('rendered', updateFKeys);
+  state.term.on('zoom', (s) => toast(`Texte ${Math.round(s * 100)} %  (${state.term.cols} x ${state.term.rows})`, 1500));
 
   $('importFiles').onchange = (e) => { importFiles([...e.target.files]); e.target.value = ''; };
   $('restoreFile').onchange = (e) => { if (e.target.files[0]) restore(e.target.files[0]); e.target.value = ''; };
