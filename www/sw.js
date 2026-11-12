@@ -1,6 +1,6 @@
 // lspf PWA service worker: the application works offline once installed.
 // The version and the list of files are filled in by build.js (the cache name changes with the content).
-const CACHE = 'lspf-pwa-7290756abcce';
+const CACHE = 'lspf-pwa-ed50b8a108e3';
 const FILES = ["./","index.html","app.css","lspf-bundle.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png"];
 
 self.addEventListener('install', (e) => {
@@ -13,10 +13,36 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 
+// Android "Share" -> lspf (manifest share_target, POST multipart): the shared files are kept in the cache
+// SHARE, then the application is opened on ./?share=ID; main.js copies them into ~/partages and opens VIEW.
+const SHARE = 'lspf-share';
+async function receiveShare(req) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    const form = await req.formData();
+    const c = await caches.open(SHARE);
+    let n = 0;
+    for (const f of form.getAll('files')) {
+      if (!f || typeof f === 'string') continue;
+      await c.put(`./__share__/${id}/${n++}`, new Response(f, { headers: { 'X-Name': encodeURIComponent(f.name || 'partage' + n) } }));
+    }
+    if (!n) {   // shared text or link, without file: kept as a text file
+      const text = [form.get('title'), form.get('text'), form.get('url')].filter(Boolean).join('\n');
+      if (text) await c.put(`./__share__/${id}/0`, new Response(text + '\n', { headers: { 'X-Name': 'partage-' + id + '.txt' } }));
+    }
+  } catch (err) { /* nothing received: the application opens normally */ }
+  return Response.redirect(`./?share=${id}`, 303);
+}
+
 // Cache first (the files of a version never change), network for anything else
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method === 'POST' && url.origin === self.location.origin && url.pathname.endsWith('/share-target')) {
+    e.respondWith(receiveShare(req));
+    return;
+  }
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
     const hit = (await c.match(req, { ignoreSearch: true })) || (req.mode === 'navigate' ? await c.match('index.html') : undefined);

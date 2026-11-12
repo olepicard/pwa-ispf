@@ -23,6 +23,51 @@
     <div class="row" id="keys"></div>
   </div>
   <div id="menu" hidden></div>
+  <div id="install" hidden role="dialog" aria-labelledby="installTitle">
+    <div class="box">
+      <h1 id="installTitle">Installer lspf sur votre téléphone</h1>
+      <p>lspf est une <em>Progressive Web App</em> : une fois installée, elle s'ouvre en plein écran comme une
+        application, fonctionne <b>hors connexion</b> et apparaît dans le menu <b>Partager</b> d'Android.</p>
+      <p class="ok" id="installState"></p>
+      <button type="button" id="installBtn" hidden>📲 Installer maintenant</button>
+
+      <h2>1. Sur le téléphone (Chrome Android)</h2>
+      <ol>
+        <li>Ouvrez cette page dans <b>Chrome</b> (l'adresse doit être en <code>https://</code> ou <code>http://localhost</code>).</li>
+        <li>Touchez le menu <b>⋮</b> en haut à droite.</li>
+        <li>Choisissez <b>Installer l'application</b> (ou <b>Ajouter à l'écran d'accueil</b> → <b>Installer</b>).</li>
+        <li>Confirmez : l'icône <b>lspf</b> apparaît sur l'écran d'accueil et dans la liste des applications.</li>
+      </ol>
+      <p class="hint">Samsung Internet : menu ☰ → <b>Ajouter la page à</b> → <b>Écran d'accueil</b>.
+        Edge : menu ⋯ → <b>Ajouter au téléphone</b>.</p>
+
+      <h2>2. Servir lspf en local depuis un PC</h2>
+      <p>Il faut Node.js 20+ sur le PC, le <b>débogage USB</b> activé sur le téléphone et <code>adb</code>
+        (Android Platform Tools).</p>
+      <pre>cd node-lspf-pwa
+node build.js                    # construit www/
+node serve.js                    # http://localhost:8080
+adb reverse tcp:8080 tcp:8080    # le téléphone voit le port 8080 du PC</pre>
+      <p>Sur le téléphone, ouvrez <code>http://localhost:8080</code> dans Chrome, puis suivez l'étape 1.
+        Après l'installation, le câble n'est plus nécessaire : lspf fonctionne hors connexion.</p>
+      <p class="hint">Réseau local sans câble ni HTTPS : <code>node serve.js --host 0.0.0.0</code>, puis dans Chrome
+        Android <code>chrome://flags</code> → <i>Insecure origins treated as secure</i> → ajoutez
+        <code>http://ADRESSE-DU-PC:8080</code> et relancez Chrome.</p>
+
+      <h2>3. Ouvrir un fichier depuis une autre application</h2>
+      <p>Une fois lspf installée, dans le gestionnaire de fichiers, Gmail, Drive… : <b>Partager</b> → <b>lspf</b>.
+        Le fichier est copié dans <code>~/partages</code> et s'ouvre directement dans l'éditeur en mode
+        <b>VIEW</b> (F3 revient au menu principal).</p>
+
+      <h2>Mises à jour et données</h2>
+      <p>Une nouvelle version publiée à la même adresse est prise au lancement suivant. Vos fichiers restent dans
+        le navigateur du téléphone : désinstaller l'application les efface, pensez à la
+        <b>Sauvegarde complète</b> (menu ☰).</p>
+
+      <label class="never"><input type="checkbox" id="installNever"> Ne plus afficher au démarrage</label>
+      <button type="button" class="close" id="installClose">Continuer vers lspf</button>
+    </div>
+  </div>
   <div id="overlay" hidden>Chargement de lspf…</div>
   <div id="toast" hidden></div>
   <input type="file" id="importFiles" multiple hidden>

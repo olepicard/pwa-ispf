@@ -135,6 +135,11 @@ async function test(name, fn) {
   await cdp.send('Page.navigate', { url: URL0 });
   await test('starts on the primary option menu, 80x24 or more, fills the phone screen', async () => {
     await cdp.waitFor("window.LSPF && LSPF.text().includes('Option ===>')", 20000, 'primary menu');
+    await cdp.waitFor("!document.getElementById('install').hidden", 5000, 'installation guide shown in a browser tab');
+    assert.match(await cdp.eval("document.getElementById('install').textContent"), /Installer l'application[\s\S]*adb reverse/);
+    await shot('0-install');
+    await cdp.eval("document.getElementById('installNever').click(); document.getElementById('installClose').click()");
+    assert.ok(await cdp.eval("document.getElementById('install').hidden && LSPF.state.input.enabled"));
     const g = await geo();
     assert.ok(g.cols >= 80 && g.rows >= 24, `screen ${g.cols}x${g.rows}`);
     assert.ok(g.cols * g.cw <= W + 1, 'no horizontal overflow');
@@ -278,6 +283,31 @@ async function test(name, fn) {
     await cdp.send('Page.reload');
     await cdp.waitFor("window.LSPF && LSPF.text().includes('Option ===>')", 20000, 'offline start');
     await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  });
+  await test('Android share target: the shared file is copied into ~/partages and opened in VIEW, F3 = primary menu', async () => {
+    const m = await cdp.send('Page.getAppManifest');
+    assert.match(m.data, /"share_target"/);
+    // what Android does: a POST multipart navigation to the share_target action, answered by the service worker
+    await cdp.eval(`(() => {
+      const form = document.createElement('form');
+      form.method = 'POST'; form.enctype = 'multipart/form-data'; form.action = 'share-target';
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.name = 'files';
+      const dt = new DataTransfer();
+      dt.items.add(new File(['       IDENTIFICATION DIVISION.\\n       PROGRAM-ID. PARTAGE.\\n'], 'Mon prog.cbl', { type: 'text/plain' }));
+      inp.files = dt.files;
+      form.appendChild(inp);
+      document.body.appendChild(form);
+      form.submit();
+    })()`);
+    await cdp.waitFor("window.LSPF && LSPF.state.term && /VIEW .*Mon prog\\.cbl/i.test(LSPF.text())", 20000, 'VIEW of the shared file');
+    assert.match(await text(), /PROGRAM-ID\. PARTAGE/);
+    assert.ok(await cdp.eval("LSPF.vfs.existsSync('/home/lspf/partages/Mon prog.cbl') && !location.search"));
+    assert.ok(await cdp.eval("document.getElementById('install').hidden"));
+    await shot('10-share-view');
+    await key('F3', 'F3', 114);
+    await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'primary menu after F3');
+    assert.ok(await cdp.eval("document.getElementById('overlay').hidden"));
   });
   await test('portrait orientation: still 80 columns, key bar visible', async () => {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 2.625, mobile: true, screenOrientation: { type: 'portraitPrimary', angle: 0 } });

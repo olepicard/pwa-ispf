@@ -119,7 +119,9 @@ async function openStorage() {
 // ---------------------------------------------------------------------------------------------------------------
 const state = { session: null, term: null, input: null, ended: false, shift: false, kbdWanted: false };
 
-function startSession(sel) {
+// sel: first application (default: primary option menu).  then: called when that session ends normally
+// (used after a shared file: F3 in VIEW goes on to the primary option menu instead of ending lspf).
+function startSession(sel, then) {
   const { Session } = require('/lspf/lib/session.js');
   const term = state.term;
   term.removeAllListeners('key');
@@ -130,7 +132,7 @@ function startSession(sel) {
   state.ended = false;
   hideOverlay();
   s.start(sel || { pgm: 'PMAIN0A', parm: '', newappl: 'ISP', newpool: true })
-    .then(() => endSession('Session lspf terminée.'))
+    .then(() => { if (then && !state.ended && state.session === s) then(); else endSession('Session lspf terminée.'); })
     .catch((e) => { if (!(e && e.isProcessExit)) endSession('Erreur : ' + (e && e.message || e)); });
   return s;
 }
@@ -351,6 +353,102 @@ async function wipeUserFiles() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Android "Share" -> lspf: the service worker keeps the files in the cache 'lspf-share' and opens ./?share=ID
+// ---------------------------------------------------------------------------------------------------------------
+const SHARE_DIR = HOME + '/partages';
+
+// Name not used yet in SHARE_DIR (names are case insensitive): FILE.txt, FILE(1).txt, ...
+function freeName(name) {
+  name = (name || 'partage').replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '_').slice(0, 120) || 'partage';
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+  for (let i = 0; ; i++) {
+    const p = SHARE_DIR + '/' + (i ? `${base}(${i})${ext}` : name);
+    if (!vfs.existsSync(p)) return p;
+  }
+}
+
+// Copy the shared files into ~/partages; returns their paths (in the order of the share)
+async function receiveShared(id) {
+  if (!id || typeof caches === 'undefined') return [];
+  const out = [];
+  try {
+    const c = await caches.open('lspf-share');
+    const reqs = (await c.keys()).filter(r => new URL(r.url).pathname.includes(`/__share__/${id}/`))
+      .sort((a, b) => +a.url.split('/').pop() - +b.url.split('/').pop());
+    for (const r of reqs) {
+      const res = await c.match(r);
+      if (res) {
+        let name = res.headers.get('X-Name') || 'partage';
+        try { name = decodeURIComponent(name); } catch (e) { /* keep it */ }
+        vfs.mkdirSync(SHARE_DIR, { recursive: true });
+        const p = freeName(name);
+        vfs.writeFileSync(p, new Uint8Array(await res.arrayBuffer()));
+        out.push(p);
+      }
+      await c.delete(r);
+    }
+    // shares never opened (application killed in between) are not kept
+    for (const r of await c.keys()) if (!new URL(r.url).pathname.includes(`/__share__/${id}/`)) await c.delete(r);
+    if (vfs.backend) await vfs.backend.flush();
+  } catch (e) { console.error('Shared files', e); toast('Fichier partagé illisible : ' + e.message, 4000); }
+  return out;
+}
+
+// VIEW of a file (PEDIT01 VIEW), then the primary option menu when it ends
+function viewSel(file) {
+  return { pgm: 'PEDIT01', parm: `VIEW '${file.replace(/'/g, '\'\'')}'`, newappl: 'ISR', newpool: true };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Installation guide (#install in index.html), with Chrome's install prompt when it is offered
+// ---------------------------------------------------------------------------------------------------------------
+let installEvent = null;
+const isInstalled = () => (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches
+  || matchMedia('(display-mode: minimal-ui)').matches)) || navigator.standalone === true || document.referrer.startsWith('android-app://');
+
+function updateInstallBox() {
+  const st = $('installState');
+  if (!st) return;
+  $('installBtn').hidden = !installEvent;
+  st.textContent = isInstalled() ? '✔ lspf est installée et lancée comme une application.'
+    : installEvent ? 'Ce navigateur propose l\'installation directe : touchez le bouton ci-dessous.'
+      : (window.isSecureContext ? '' : '⚠ Cette adresse n\'est pas sécurisée (ni https://, ni localhost) : l\'installation n\'est pas possible, voir l\'étape 2.');
+}
+
+function showInstall() {
+  const box = $('install');
+  if (!box) return;
+  updateInstallBox();
+  $('installNever').checked = loadSetting('installNever', false);
+  box.hidden = false;
+  box.scrollTop = 0;
+  if (state.input) state.input.enabled = false;
+}
+
+function closeInstall() {
+  $('install').hidden = true;
+  saveSetting('installNever', $('installNever').checked);
+  if (state.input) state.input.enabled = true;
+}
+
+function setupInstall() {
+  if (!$('install')) return;
+  $('installClose').onclick = closeInstall;
+  $('installNever').onchange = (e) => saveSetting('installNever', e.target.checked);
+  $('installBtn').onclick = async () => {
+    if (!installEvent) return;
+    const ev = installEvent;
+    installEvent = null;
+    ev.prompt();
+    const r = await ev.userChoice.catch(() => null);
+    if (r && r.outcome === 'accepted') { closeInstall(); toast('lspf est installée : lancez-la depuis l\'écran d\'accueil.', 5000); } else updateInstallBox();
+  };
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; updateInstallBox(); });
+  window.addEventListener('appinstalled', () => { installEvent = null; updateInstallBox(); });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Menu
 // ---------------------------------------------------------------------------------------------------------------
 const MENU = [
@@ -363,6 +461,7 @@ const MENU = [
   { label: '↺  Taille de texte automatique', act: () => state.term.setFontScale(1) },
   { label: '⛶  Plein écran', act: () => toggleFullscreen() },
   { label: '⌨  Clavier à chaque toucher : ', act: () => { state.kbdWanted = !state.kbdWanted; saveSetting('kbdWanted', state.kbdWanted); }, toggle: () => state.kbdWanted },
+  { label: '📲  Installer l\'application…', act: () => showInstall() },
   { label: '🗑  Effacer toutes mes données…', act: () => eraseAll() },
   { label: 'ℹ️  À propos', act: () => about() },
 ];
@@ -447,11 +546,19 @@ async function boot() {
   $('importFiles').onchange = (e) => { importFiles([...e.target.files]); e.target.value = ''; };
   $('restoreFile').onchange = (e) => { if (e.target.files[0]) restore(e.target.files[0]); e.target.value = ''; };
 
+  setupInstall();
+
+  // Opened by the Android share sheet: ./?share=ID (the parameter is removed so that a reload does not reopen it)
+  const shareId = new URLSearchParams(location.search).get('share');
+  if (shareId !== null) history.replaceState(null, '', location.pathname);
+  const shared = await receiveShared(shareId);
+
   // Android Back button = F3 (END) instead of leaving the application
   history.pushState({ lspf: 1 }, '');
   window.addEventListener('popstate', () => {
     history.pushState({ lspf: 1 }, '');
     if (!$('menu').hidden) { closeMenu(); return; }
+    if ($('install') && !$('install').hidden) { closeInstall(); return; }
     key('f3');
   });
 
@@ -463,7 +570,15 @@ async function boot() {
   proc.exitHandler = (code) => {
     setTimeout(() => endSession(code ? `lspf s'est arrêté (code ${code}).` : 'Session lspf terminée.'), 0);
   };
-  startSession();
+  if (shared.length) {
+    startSession(viewSel(shared[0]), () => startSession());
+    toast(shared.length > 1 ? `${shared.length} fichiers reçus dans ${SHARE_DIR} : ${path.basename(shared[0])} est affiché.`
+      : `Fichier reçu : ${shared[0]}`, 4000);
+  } else {
+    if (shareId !== null) toast('Rien à ouvrir dans ce partage.', 3000);
+    startSession();
+    if (!isInstalled() && !loadSetting('installNever', false) && location.protocol !== 'file:') showInstall();
+  }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').then((reg) => {
@@ -479,7 +594,7 @@ async function boot() {
 
 // Test / debugging hooks
 const LSPF = {
-  vfs, state, boot, startSession, backup, decode, installAssets, seed, HOME, PROFILE,
+  vfs, state, boot, startSession, backup, decode, installAssets, seed, HOME, PROFILE, receiveShared, viewSel, showInstall, closeInstall,
   text: () => (state.term ? state.term.text() : ''),
   key: (name, extra) => key(name, extra),
   type: (s) => { for (const ch of s) key('char', { ch }); },

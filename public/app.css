@@ -164,3 +164,51 @@ body {
   z-index: 30;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
 }
+
+/* installation guide (index.html #install) */
+#install {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .8);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  z-index: 15;
+  -webkit-user-select: text;
+  user-select: text;
+}
+#install[hidden] { display: none; }
+#install .box {
+  background: #111824;
+  border: 1px solid #2b3a52;
+  border-radius: 10px;
+  margin: 12px;
+  padding: 14px 18px;
+  max-width: 760px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+#install h1 { font-size: 19px; color: #6dff8a; margin: 0 0 8px; }
+#install h2 { font-size: 16px; color: #9cbcff; margin: 16px 0 4px; }
+#install p, #install ol { margin: 6px 0; }
+#install ol { padding-left: 1.4em; }
+#install code, #install pre { font-family: ui-monospace, "Cascadia Mono", "Roboto Mono", monospace; color: #30c8c8; }
+#install pre { background: #0b0f16; border: 1px solid #263040; border-radius: 6px; padding: 8px 10px; overflow-x: auto; font-size: 13px; }
+#install .hint { color: #98a4b3; font-size: 14px; }
+#install .ok { color: #6dff8a; }
+#install .ok:empty { display: none; }
+#install button {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid #3fcf5f;
+  border-radius: 6px;
+  background: #1d3b23;
+  color: #e6edf3;
+  font-size: 16px;
+}
+#install button[hidden] { display: none; }
+#install button.close { background: #263040; border-color: #3b4a63; }
+#install .never { display: block; margin-top: 14px; color: #c8ccd0; }

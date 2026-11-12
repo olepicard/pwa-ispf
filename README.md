@@ -23,6 +23,8 @@ Une PWA doit être servie en **HTTPS**, ou depuis `http://localhost`. Le contenu
 
 Une fois installée, lspf s'ouvre en plein écran, comme une application, et fonctionne **hors connexion**. Après une nouvelle construction publiée au même endroit, la nouvelle version est prise au lancement suivant.
 
+Ces étapes sont aussi affichées dans l'application : au premier lancement dans un onglet du navigateur (case « Ne plus afficher au démarrage »), et à tout moment par le menu ☰ → **Installer l'application**. Quand Chrome le propose, un bouton **Installer maintenant** lance directement l'installation.
+
 Pour obtenir un vrai fichier APK (Play Store, MDM), on peut emballer la PWA publiée en HTTPS avec [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) (Trusted Web Activity) ; ce n'est pas nécessaire pour l'utiliser.
 
 ## Utilisation
@@ -67,7 +69,19 @@ Les flèches, Tab, Del et ⌫ se répètent si on les maintient.
 - **Exporter un fichier** : télécharge un fichier de lspf ;
 - **Sauvegarde complète / Restaurer** : un fichier `.json` avec tous vos fichiers, profils et macros ;
 - taille du texte, plein écran, ouverture du clavier à chaque toucher ;
+- guide d'installation de l'application ;
 - effacement de toutes les données.
+
+**Partager vers lspf** : une fois l'application installée, elle apparaît dans le menu **Partager** d'Android (gestionnaire de fichiers, Gmail, Drive…). Le fichier reçu est copié dans `~/partages` (un suffixe `(1)`, `(2)`… évite d'écraser un fichier existant) et s'ouvre directement dans l'éditeur en mode **VIEW** ; F3 mène ensuite au menu principal. Un texte ou un lien partagé sans fichier devient un fichier `partage-….txt`. Si plusieurs fichiers sont partagés, ils sont tous copiés et le premier est affiché.
+
+**Scripts REXX et services TSO** : depuis EDIT ou VIEW, la commande `RUN nom` exécute un script de `~/.lspf-node/rexx/`. Les services TSO de node-lspf sont disponibles :
+- `ALLOC`, `FREE` ;
+- `EXECIO DISKR/DISKW` ;
+- la pile REXX ;
+- `CALL *(AMBLIST)` ;
+- `LMINIT` et `VIEW DATAID`.
+
+Les data sets sont des fichiers du stockage de l'application. Un nom MVS comme `'MY.LOADLIB'` est cherché dans le répertoire du fichier affiché, dans `~` puis dans `~/partages`. Un fichier XMIT partagé depuis Android est donc trouvé directement, même renommé (`MY.LOADLIB(1).XMIT`, `my.loadlib.xmit.bin`). Une écriture dans `/lspf` (bibliothèques en lecture seule) donne `READ-ONLY FILE SYSTEM` et `EXECIO` RC 20. Les fichiers temporaires (`ALLOC … NEW` sans nom) sont supprimés à la fin du script.
 
 ## Fichiers
 

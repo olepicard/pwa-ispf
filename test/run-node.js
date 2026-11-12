@@ -195,6 +195,42 @@ function load() {
     term.key('f3'); await tick();
     assert.match(term.text(), /Option ===>/);
   });
+  await test('RUN of a REXX exec with TSO services: shared XMIT found in ~/partages, EXECIO, CALL *(AMBLIST), EROFS', async () => {
+    const gen = require(path.join(__dirname, '..', '..', 'node-lspf', 'test', 'xmitgen.js'));
+    const fsm = req('fs');
+    fsm.mkdirSync('/home/lspf/partages', { recursive: true });
+    fsm.writeFileSync('/home/lspf/partages/MY.LOADLIB(1).XMIT', new Uint8Array(gen.lmodXmit()));   // name given by a share
+    fsm.writeFileSync('/home/lspf/.lspf-node/rexx/ambt.rex', [
+      '/* REXX */',
+      '"ALLOC DD(SYSLIB) DA(\'MY.LOADLIB\') SHR REUSE"; say "lib" rc',
+      '"ALLOC DD(SYSPRINT) NEW REUSE"',
+      "QUEUE ' LISTIDR MEMBER=MAIN'",
+      '"ALLOC F(SYSIN) NEW DELETE REUSE"',
+      '"EXECIO "QUEUED()" DISKW SYSIN (FINIS"',
+      '"CALL *(AMBLIST)"; say "amb" rc',
+      '"EXECIO * DISKR SYSPRINT (STEM L. FINIS)"',
+      'do i = 1 to l.0; if pos("MAIN ENTRY POINT:", l.i) > 0 then say strip(l.i); end',
+      '"ALLOC F(OUT) DA(\'~/partages/result.txt\') NEW"',
+      "o.1 = 'ligne 1'",
+      '"EXECIO 1 DISKW OUT (STEM O. FINIS"; say "w" rc',
+      '"ALLOC F(RO) DA(\'/lspf/rexx/nouveau.txt\') NEW"',
+      '"EXECIO 1 DISKW RO (STEM O. FINIS"; say "ro" rc',
+      '"FREE F(SYSIN SYSPRINT SYSLIB OUT RO)"'].join('\n') + '\n');
+    await cmd('ed ~/exemples/PROG01.cbl');
+    await cmd('run ambt');
+    const t = term.text();
+    assert.match(t, /lib 0/);
+    assert.match(t, /amb 0/);
+    assert.match(t, /MAIN ENTRY POINT: {2}00000010 {2}ENTRY1/);
+    assert.match(t, /w 0/);
+    assert.match(t, /READ-ONLY FILE SYSTEM/);
+    assert.match(t, /ro 20/);
+    assert.strictEqual(vfs.readFileSync('/home/lspf/partages/result.txt', 'utf8'), 'ligne 1\n');
+    assert.ok(!vfs.readdirSync('/home/lspf/.lspf-node/spool/tso').some(f => /^TSO-/.test(f)));   // temporary files deleted
+    term.key('f3'); await tick();
+    term.key('f3'); await tick();
+    assert.match(term.text(), /Option ===>/);
+  });
   await test('system commands are reported as unavailable', async () => {
     await cmd('tso ls');
     assert.match(term.text(), /PWA|127/);
