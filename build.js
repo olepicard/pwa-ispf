@@ -146,11 +146,25 @@ function icon(size, maskable) {
 // ---------------------------------------------------------------------------------------------------------------
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, 'icons'), { recursive: true });
-for (const f of fs.readdirSync(path.join(HERE, 'public'))) fs.copyFileSync(path.join(HERE, 'public', f), path.join(OUT, f));
+for (const f of fs.readdirSync(path.join(HERE, 'public'), { withFileTypes: true })) {
+  if (f.isDirectory()) {
+    fs.cpSync(path.join(HERE, 'public', f.name), path.join(OUT, f.name), { recursive: true });
+  } else {
+    fs.copyFileSync(path.join(HERE, 'public', f.name), path.join(OUT, f.name));
+  }
+}
 fs.writeFileSync(path.join(OUT, 'lspf-bundle.js'), bundle);
-fs.writeFileSync(path.join(OUT, 'icons', 'icon-192.png'), icon(192, false));
-fs.writeFileSync(path.join(OUT, 'icons', 'icon-512.png'), icon(512, false));
-fs.writeFileSync(path.join(OUT, 'icons', 'icon-maskable-512.png'), icon(512, true));
+
+const pubIcons = path.join(HERE, 'public', 'icons');
+if (fs.existsSync(path.join(pubIcons, 'icon-192.png'))) {
+  fs.copyFileSync(path.join(pubIcons, 'icon-192.png'), path.join(OUT, 'icons', 'icon-192.png'));
+  fs.copyFileSync(path.join(pubIcons, 'icon-512.png'), path.join(OUT, 'icons', 'icon-512.png'));
+  fs.copyFileSync(path.join(pubIcons, 'icon-maskable-512.png'), path.join(OUT, 'icons', 'icon-maskable-512.png'));
+} else {
+  fs.writeFileSync(path.join(OUT, 'icons', 'icon-192.png'), icon(192, false));
+  fs.writeFileSync(path.join(OUT, 'icons', 'icon-512.png'), icon(512, false));
+  fs.writeFileSync(path.join(OUT, 'icons', 'icon-maskable-512.png'), icon(512, true));
+}
 
 const cached = ['./', 'index.html', 'app.css', 'lspf-bundle.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
 const hash = crypto.createHash('sha256');

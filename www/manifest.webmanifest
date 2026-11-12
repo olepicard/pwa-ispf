@@ -1,6 +1,6 @@
 {
-  "name": "lspf - ISPF pour Android",
-  "short_name": "lspf",
+  "name": "ISPF pour Android",
+  "short_name": "ISPF",
   "description": "Clone du Dialogue Manager ISPF : menus, liste de fichiers, éditeur avec commandes de ligne, macros REXX.",
   "id": "./",
   "start_url": "./",
@@ -21,7 +21,10 @@
       "text": "text",
       "url": "url",
       "files": [
-        { "name": "files", "accept": ["*/*", "text/*", "application/*", ".txt", ".cbl", ".cob", ".cpy", ".jcl", ".rexx", ".rex", ".asm", ".pli", ".xmi", ".log", ".csv", ".json", ".xml"] }
+        {
+          "name": "files",
+          "accept": ["*/*"]
+        }
       ]
     }
   },

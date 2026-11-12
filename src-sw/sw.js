@@ -24,21 +24,36 @@ async function receiveShare(req) {
     let n = 0;
     for (const f of form.getAll('files')) {
       if (!f || typeof f === 'string') continue;
-      await c.put(`./__share__/${id}/${n++}`, new Response(f, { headers: { 'X-Name': encodeURIComponent(f.name || 'partage' + n) } }));
+      const fileUrl = new URL(`./__share__/${id}/${n++}`, self.location.href).href;
+      await c.put(fileUrl, new Response(f, {
+        headers: {
+          'X-Name': encodeURIComponent(f.name || ('partage' + n)),
+          'Content-Type': f.type || 'application/octet-stream'
+        }
+      }));
     }
     if (!n) {   // shared text or link, without file: kept as a text file
       const text = [form.get('title'), form.get('text'), form.get('url')].filter(Boolean).join('\n');
-      if (text) await c.put(`./__share__/${id}/0`, new Response(text + '\n', { headers: { 'X-Name': 'partage-' + id + '.txt' } }));
+      if (text) {
+        const textUrl = new URL(`./__share__/${id}/0`, self.location.href).href;
+        await c.put(textUrl, new Response(text + '\n', {
+          headers: {
+            'X-Name': 'partage-' + id + '.txt',
+            'Content-Type': 'text/plain; charset=utf-8'
+          }
+        }));
+      }
     }
   } catch (err) { /* nothing received: the application opens normally */ }
-  return Response.redirect(`./?share=${id}`, 303);
+  const redirectUrl = new URL(`./?share=${id}`, self.location.href).href;
+  return Response.redirect(redirectUrl, 303);
 }
 
 // Cache first (the files of a version never change), network for anything else
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method === 'POST' && url.origin === self.location.origin && url.pathname.endsWith('/share-target')) {
+  if (req.method === 'POST' && url.origin === self.location.origin && (url.pathname.endsWith('/share-target') || url.pathname.endsWith('/share-target/'))) {
     e.respondWith(receiveShare(req));
     return;
   }
