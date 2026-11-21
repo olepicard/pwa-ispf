@@ -8,6 +8,7 @@
   const SHIMS = {
     fs: '/pwa/shims/fs.js', path: '/pwa/shims/path.js', os: '/pwa/shims/os.js', events: '/pwa/shims/events.js',
     child_process: '/pwa/shims/child_process.js', process: '/pwa/shims/process.js',
+    zlib: '/pwa/shims/zlib.js', crypto: '/pwa/shims/crypto.js',
   };
   let PROCESS, BUFFER;
 

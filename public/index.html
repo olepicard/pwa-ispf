@@ -8,9 +8,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="description" content="lspf : clone du Dialogue Manager ISPF (panneaux, éditeur, macros REXX) pour Android">
-  <title>lspf</title>
+  <title>ISPF</title>
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <meta name="application-name" content="ISPF">
+  <meta name="apple-mobile-web-app-title" content="ISPF">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="app.css">
 </head>
@@ -55,9 +58,13 @@ adb reverse tcp:8080 tcp:8080    # le téléphone voit le port 8080 du PC</pre>
         <code>http://ADRESSE-DU-PC:8080</code> et relancez Chrome.</p>
 
       <h2>3. Ouvrir un fichier depuis une autre application</h2>
-      <p>Une fois lspf installée, dans le gestionnaire de fichiers, Gmail, Drive… : <b>Partager</b> → <b>lspf</b>.
-        Le fichier est copié dans <code>~/partages</code> et s'ouvre directement dans l'éditeur en mode
+      <p>Une fois l'application installée, dans le gestionnaire de fichiers, Gmail, Drive… : <b>Partager</b> →
+        <b>ISPF</b>. Le fichier est copié dans <code>~/partages</code> et s'ouvre directement dans l'éditeur en mode
         <b>VIEW</b> (F3 revient au menu principal).</p>
+      <p><b>Sur PC (Windows)</b> : installez l'application depuis Chrome ou Edge (icône <b>Installer</b> dans la barre
+        d'adresse). Dans l'Explorateur de fichiers, clic droit sur un fichier → <b>Ouvrir avec</b> → <b>ISPF</b> :
+        il s'ouvre en <b>VIEW</b>, dans un nouvel écran logique si ISPF est déjà lancé (F3 revient à l'écran
+        précédent). Avec <b>Edge</b>, ISPF apparaît aussi dans le menu <b>Partager</b> de Windows.</p>
 
       <h2>Mises à jour et données</h2>
       <p>Une nouvelle version publiée à la même adresse est prise au lancement suivant. Vos fichiers restent dans

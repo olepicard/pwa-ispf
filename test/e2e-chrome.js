@@ -309,6 +309,26 @@ async function test(name, fn) {
     await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'primary menu after F3');
     assert.ok(await cdp.eval("document.getElementById('overlay').hidden"));
   });
+  await test('Windows "Open with > ISPF": file_handlers in the manifest, VIEW in a new logical screen, F3 = previous screen', async () => {
+    const m = await cdp.send('Page.getAppManifest');
+    assert.deepStrictEqual(m.errors, []);
+    const man = JSON.parse(m.data);
+    assert.strictEqual(man.short_name, 'ISPF');
+    assert.ok(man.file_handlers[0].accept['text/plain'].includes('.jcl'));
+    assert.strictEqual(man.launch_handler.client_mode, 'focus-existing');
+    await cdp.waitFor("LSPF.text().includes('Option ===>')", 5000, 'primary menu');
+    // what launchQueue gives: FileSystemFileHandle objects (here, the same interface)
+    await cdp.eval(`LSPF.openLaunched({ files: [{ kind: 'file', getFile: async () =>
+      new File(['//OUVRIR   JOB (ACCT),EXPLORATEUR\\n//STEP1    EXEC PGM=IEFBR14\\n'], 'Ouvrir.jcl') }] })`);
+    await cdp.waitFor("/VIEW .*Ouvrir\\.jcl/i.test(LSPF.text())", 10000, 'VIEW of the opened file');
+    assert.match(await text(), /EXPLORATEUR/);
+    assert.strictEqual(await cdp.eval('LSPF.state.session.screens.length'), 2);
+    // the same file opened again is not duplicated
+    await cdp.eval(`LSPF.storeReceived('Ouvrir.jcl', new TextEncoder().encode('//OUVRIR   JOB (ACCT),EXPLORATEUR\\n//STEP1    EXEC PGM=IEFBR14\\n'))`);
+    assert.ok(await cdp.eval("!LSPF.vfs.existsSync('/home/lspf/partages/Ouvrir(1).jcl')"));
+    await key('F3', 'F3', 114);
+    await cdp.waitFor("LSPF.text().includes('Option ===>') && LSPF.state.session.screens.length === 1", 5000, 'previous screen after F3');
+  });
   await test('portrait orientation: still 80 columns, key bar visible', async () => {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 2.625, mobile: true, screenOrientation: { type: 'portraitPrimary', angle: 0 } });
     await sleep(500);

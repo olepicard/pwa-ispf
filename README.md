@@ -50,7 +50,7 @@ Les flèches, Tab, Del et ⌫ se répètent si on les maintient.
 | Geste | Effet |
 |---|---|
 | toucher | équivaut à un clic : place le curseur (donc `MOUSE LEFT F4` fonctionne : toucher un mot lance F4). Sur `F4=…` dans les lignes de touches de l'écran : appuie sur la touche. Sur un champ point-and-shoot : Entrée à cet endroit |
-| toucher un nom dans la liste 3.4 | `V` sur l'entrée : VIEW du fichier, liste du répertoire (`..` remonte), visualiseur pour un fichier XMIT |
+| toucher un nom dans la liste 3.4 | `V` sur l'entrée : VIEW du fichier, liste du répertoire (`..` remonte), visualiseur pour un fichier XMIT, analyseur pour un dump z/OS |
 | toucher un en-tête de colonne de la liste 3.4 | tri descendant sur cette colonne ; un second toucher inverse l'ordre |
 | double toucher | double-clic (`MOUSE DOUBLE …`) |
 | appui long | Entrée à cet endroit (point-and-shoot), comme le clic droit |
@@ -72,7 +72,11 @@ Les flèches, Tab, Del et ⌫ se répètent si on les maintient.
 - guide d'installation de l'application ;
 - effacement de toutes les données.
 
-**Partager vers lspf** : une fois l'application installée, elle apparaît dans le menu **Partager** d'Android (gestionnaire de fichiers, Gmail, Drive…). Le fichier reçu est copié dans `~/partages` (un suffixe `(1)`, `(2)`… évite d'écraser un fichier existant) et s'ouvre directement dans l'éditeur en mode **VIEW** ; F3 mène ensuite au menu principal. Un texte ou un lien partagé sans fichier devient un fichier `partage-….txt`. Si plusieurs fichiers sont partagés, ils sont tous copiés et le premier est affiché.
+**Partager vers ISPF** : une fois installée, l'application apparaît sous le nom **ISPF**, avec son logo, dans le menu **Partager** d'Android (gestionnaire de fichiers, Gmail, Drive…). Le fichier reçu est copié dans `~/partages` (un suffixe `(1)`, `(2)`… évite d'écraser un fichier différent ; le même fichier reçu deux fois n'est pas dupliqué) et s'ouvre directement dans l'éditeur en mode **VIEW** ; F3 mène ensuite au menu principal. Un texte ou un lien partagé sans fichier devient un fichier `partage-….txt`. Si plusieurs fichiers sont partagés, ils sont tous copiés et le premier est affiché.
+
+**Sur PC (Windows, macOS, Linux)** : installez l'application depuis Chrome ou Edge (icône **Installer** dans la barre d'adresse, ou menu → *Applications* → *Installer ISPF*). Elle devient une application ISPF du menu Démarrer et de la barre des tâches, et elle est déclarée pour les fichiers texte et mainframe (`.txt`, `.log`, `.cbl`, `.cob`, `.cpy`, `.jcl`, `.rexx`, `.rex`, `.exec`, `.clist`, `.asm`, `.mac`, `.pli`, `.csv`, `.json`, `.xml`, `.xmi`, `.xmit`, `.dmp`…, voir `file_handlers` dans `public/manifest.webmanifest`). Dans l'Explorateur de fichiers : clic droit → **Ouvrir avec** → **ISPF** (la première fois, le navigateur demande l'autorisation). Le fichier est copié dans `~/partages` et s'ouvre en **VIEW**. Si ISPF est déjà lancé, la fenêtre existante est réutilisée et le fichier s'ouvre dans un **nouvel écran logique** (comme `START`) : le travail en cours est conservé et F3 y revient. Avec **Edge**, ISPF figure aussi dans le menu **Partager** de Windows (clic droit → Partager), qui suit le même chemin que le partage Android ; Chrome sous Windows ne gère pas ce menu.
+
+**Logo** : les icônes sont générées par `build.js` à partir de `assets/ispf-logo.png` (dessin sombre sur fond clair, PNG 8 bits ; `--logo FICHIER` pour en utiliser un autre).
 
 **Scripts REXX et services TSO** : depuis EDIT ou VIEW, la commande `RUN nom` exécute un script de `~/.lspf-node/rexx/`. Les services TSO de node-lspf sont disponibles :
 - `ALLOC`, `FREE` ;
@@ -95,6 +99,12 @@ Les noms de fichiers **ne tiennent pas compte de la casse**, comme sous Windows 
 
 Les données restent dans le navigateur du téléphone. Elles disparaissent si l'on désinstalle l'application ou efface les données du site : faites des sauvegardes (menu ☰).
 
+**Dumps z/OS.** Un SYSMDUMP (ou un dump SVC) copié ou partagé dans le stockage de l'application apparaît avec le type `Dump` dans la liste 3.4 ; le toucher ouvre l'analyseur de node-lspf (résumé, tâches, modules, mémoire en hexadécimal, `LIST`, `FIND`, `WHERE`, `REPORT`), que le dump ait été transféré en binaire ou en mode texte. Le dump est chargé en entier dans la mémoire du navigateur : sur un téléphone, cela convient à des dumps de quelques dizaines de mégaoctets.
+
+**ZIP et XMIT.** Les commandes de ligne de la 3.4 fonctionnent comme dans node-lspf : `ZIP` crée une archive (chiffrement AES-256 ou ZipCrypto possible), `UNZIP` l'extrait, `XMIT` crée un fichier TSO TRANSMIT (un répertoire devient un PDS), `XE` extrait un XMIT (« unxmit »). Les archives sont au format ZIP standard (DEFLATE) ; comme dans node-lspf, choisir ZipCrypto pour une archive chiffrée à ouvrir avec l'Explorateur Windows. La compression est un peu moins forte que celle de zlib (codes de Huffman fixes, environ 10 % de plus sur du texte).
+
+**Aide contextuelle.** Dans la 3.4, F1 avec le curseur sur une ligne, ou `?` devant l'entrée, affiche les commandes possibles pour cette entrée selon son type (XE / XM pour un fichier XMIT, XMIT / ZIP pour un répertoire, UNZIP pour une archive…).
+
 **Limite** : les commandes système (option 6, `TSO`, `SHELL`, `ADDRESS SYSTEM` dans une macro) ne sont pas disponibles dans un navigateur. Elles renvoient le code 127 avec un message.
 
 ## Construire et tester
@@ -115,14 +125,15 @@ Après une modification de node-lspf, il suffit de relancer `node build.js` : le
 ## Structure
 
 ```
-build.js             construit www/ : bundle, icônes PNG (générées), service worker versionné
+build.js             construit www/ : bundle, icônes PNG (générées depuis assets/ispf-logo.png), service worker versionné
 serve.js             serveur statique de test (gzip, types MIME, manifest)
 public/              index.html, app.css, manifest.webmanifest
 src/main.js          démarrage, cycle de vie de la session, barre de touches, menu, import / export / sauvegarde
 src/webterm.js       terminal canvas (même interface que lib/terminal.js de node-lspf) et gestes tactiles
 src/input.js         clavier physique (keydown) et clavier virtuel Android (textarea + différences)
-src/vfs.js           système de fichiers virtuel synchrone (avec descripteurs en lecture et Buffer), persistance IndexedDB
-src/shims/           fs, path, os, events, process, child_process pour le navigateur
+src/vfs.js           système de fichiers virtuel synchrone (descripteurs en lecture et en écriture, Buffer), persistance IndexedDB
+src/shims/           fs, path, os, events, process, child_process, zlib (deflate / inflate), crypto (SHA-1,
+                     HMAC, PBKDF2, AES) pour le navigateur, synchrones, en JavaScript pur
 src/loader.js        chargeur de modules CommonJS du bundle
 src-sw/sw.js         service worker (cache hors connexion)
 test/                tests (Node isolé, Chrome sans interface)

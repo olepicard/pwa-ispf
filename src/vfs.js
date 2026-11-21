@@ -76,7 +76,29 @@ class VBuffer extends Uint8Array {
   writeUInt8(v, o = 0) { this[o] = v; return o + 1; }
   writeUInt16BE(v, o = 0) { this[o] = (v >>> 8) & 255; this[o + 1] = v & 255; return o + 2; }
   writeUInt32BE(v, o = 0) { this[o] = (v >>> 24) & 255; this[o + 1] = (v >>> 16) & 255; this[o + 2] = (v >>> 8) & 255; this[o + 3] = v & 255; return o + 4; }
+  writeUInt16LE(v, o = 0) { this[o] = v & 255; this[o + 1] = (v >>> 8) & 255; return o + 2; }
+  writeUInt32LE(v, o = 0) { this[o] = v & 255; this[o + 1] = (v >>> 8) & 255; this[o + 2] = (v >>> 16) & 255; this[o + 3] = (v >>> 24) & 255; return o + 4; }
+  readBigUInt64LE(o = 0) { return (BigInt(this.readUInt32LE(o + 4)) << 32n) + BigInt(this.readUInt32LE(o)); }
+  writeBigUInt64LE(v, o = 0) {
+    v = BigInt.asUintN(64, BigInt(v));
+    this.writeUInt32LE(Number(v & 0xffffffffn), o); this.writeUInt32LE(Number(v >> 32n), o + 4);
+    return o + 8;
+  }
+  // write(string[, offset[, length]][, encoding]): bytes written
+  write(s, o = 0, len, enc) {
+    if (typeof o === 'string') { enc = o; o = 0; len = undefined; } else if (typeof len === 'string') { enc = len; len = undefined; }
+    const b = encode(String(s), enc);
+    const n = Math.min(b.length, this.length - o, len === undefined ? Infinity : len);
+    this.set(b.subarray(0, n), o);
+    return n;
+  }
   copy(target, ts = 0, ss = 0, se = this.length) { const part = this.subarray(ss, se); target.set(part, ts); return part.length; }
+  static allocUnsafe(n) { return new VBuffer(n); }
+  static compare(a, b) {
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+    return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
+  }
   static from(x, enc) {
     if (typeof x === 'string') { const b = encode(x, enc); const v = new VBuffer(b.length); v.set(b); return v; }
     if (x instanceof ArrayBuffer) return new VBuffer(x);
@@ -402,17 +424,86 @@ class VFS {
     if (!this.nodes.has(a)) throw fsError('ENOENT', 'access', a);
   }
 
-  // File descriptors: read only (used to read the first bytes of a file, e.g. XMIT detection)
+  // File descriptors: 'r' (read the first bytes of a file, e.g. XMIT detection, or a ZIP archive), 'w' / 'wx'
+  // (a file written piece by piece, e.g. a ZIP archive: kept in memory, stored and persisted by closeSync)
   openSync(p, flags = 'r') {
     const a = this.abs(p);
-    if (!/^rs?\+?$/.test(String(flags)) || String(flags).includes('+')) throw fsError('EROFS', 'open', a);
+    const fl = String(flags);
+    if (!this.fds) { this.fds = new Map(); this.nextFd = 3; }
+    if (fl === 'w' || fl === 'wx') {
+      this.checkWritable(a, 'open');
+      this.checkParent(a, 'open');
+      const old = this.nodes.get(a);
+      if (old && old.type === 'dir') throw fsError('EISDIR', 'open', a);
+      if (fl === 'wx' && old) throw fsError('EEXIST', 'open', a);
+      const now = Date.now();
+      this.nodes.set(a, { type: 'file', data: new Uint8Array(0), mtime: now, ctime: old ? old.ctime : now, ro: false });
+      const fd = this.nextFd++;
+      this.fds.set(fd, { path: a, pos: 0, write: true, buf: new Uint8Array(65536), len: 0 });
+      return fd;
+    }
+    if (!/^rs?$/.test(fl)) throw fsError('EINVAL', 'open', a);
     const n = this.nodes.get(a);
     if (!n) throw fsError('ENOENT', 'open', a);
     if (n.type === 'dir') throw fsError('EISDIR', 'open', a);
-    if (!this.fds) { this.fds = new Map(); this.nextFd = 3; }
     const fd = this.nextFd++;
     this.fds.set(fd, { path: a, pos: 0 });
     return fd;
+  }
+
+  fd(fd, syscall) {
+    const f = this.fds && this.fds.get(fd);
+    if (!f) { const e = new Error('EBADF: bad file descriptor, ' + syscall); e.code = 'EBADF'; throw e; }
+    return f;
+  }
+
+  // writeSync(fd, buffer[, offset[, length[, position]]]) or writeSync(fd, string[, position[, encoding]])
+  writeSync(fd, data, offset, length, position) {
+    const f = this.fd(fd, 'write');
+    if (!f.write) { const e = new Error('EBADF: bad file descriptor, write'); e.code = 'EBADF'; throw e; }
+    let bytes;
+    if (typeof data === 'string') { position = offset; bytes = encode(data, length); }
+    else {
+      offset = offset || 0;
+      bytes = data.subarray(offset, length === undefined || length === null ? data.length : offset + length);
+    }
+    const pos = position === null || position === undefined ? f.pos : position;
+    const end = pos + bytes.length;
+    if (end > f.buf.length) {
+      let size = f.buf.length * 2;
+      while (size < end) size *= 2;
+      const b = new Uint8Array(size); b.set(f.buf.subarray(0, f.len)); f.buf = b;
+    }
+    f.buf.set(bytes, pos);
+    f.len = Math.max(f.len, end);
+    if (position === null || position === undefined) f.pos = end;
+    const n = this.nodes.get(f.path);
+    if (n) { n.data = f.buf.subarray(0, f.len); n.mtime = Date.now(); }
+    return bytes.length;
+  }
+
+  fstatSync(fd) {
+    const f = this.fd(fd, 'fstat');
+    const n = this.nodes.get(f.path);
+    if (!n) throw fsError('ENOENT', 'fstat', f.path);
+    return new Stats(n);
+  }
+
+  utimesSync(p, atime, mtime) {
+    const a = this.abs(p);
+    const n = this.nodes.get(a);
+    if (!n) throw fsError('ENOENT', 'utime', a);
+    this.checkWritable(a, 'utime');
+    const t = mtime instanceof Date ? mtime.getTime() : typeof mtime === 'number' ? (mtime < 1e11 ? mtime * 1000 : mtime) : Date.parse(mtime);
+    if (!Number.isFinite(t)) throw fsError('EINVAL', 'utime', a);
+    n.mtime = t;
+    this.persist(a);
+  }
+
+  // no permissions in the virtual file system: the file must exist
+  chmodSync(p) {
+    const a = this.abs(p);
+    if (!this.nodes.has(a)) throw fsError('ENOENT', 'chmod', a);
   }
 
   readSync(fd, buffer, offset = 0, length = buffer.length - offset, position = null) {
@@ -428,7 +519,12 @@ class VFS {
   }
 
   closeSync(fd) {
-    if (!this.fds || !this.fds.delete(fd)) { const e = new Error('EBADF: bad file descriptor, close'); e.code = 'EBADF'; throw e; }
+    const f = this.fd(fd, 'close');
+    this.fds.delete(fd);
+    if (f.write) {
+      const n = this.nodes.get(f.path);
+      if (n) { n.data = f.buf.slice(0, f.len); this.persist(f.path); }
+    }
   }
 
   // All user files (for backups): [{ path, type, data }]

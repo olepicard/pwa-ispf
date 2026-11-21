@@ -357,14 +357,17 @@ async function wipeUserFiles() {
 // ---------------------------------------------------------------------------------------------------------------
 const SHARE_DIR = HOME + '/partages';
 
-// Name not used yet in SHARE_DIR (names are case insensitive): FILE.txt, FILE(1).txt, ...
-function freeName(name) {
+// Copy of a received file in SHARE_DIR, under a name not used yet (names are case insensitive): FILE.txt,
+// FILE(1).txt, ...  The same file received again (same name, same content) is not duplicated.
+function storeReceived(name, bytes) {
   name = (name || 'partage').replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '_').slice(0, 120) || 'partage';
   const dot = name.lastIndexOf('.');
   const base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+  vfs.mkdirSync(SHARE_DIR, { recursive: true });
   for (let i = 0; ; i++) {
     const p = SHARE_DIR + '/' + (i ? `${base}(${i})${ext}` : name);
-    if (!vfs.existsSync(p)) return p;
+    if (!vfs.existsSync(p)) { vfs.writeFileSync(p, bytes); return p; }
+    try { if (vfs.statSync(p).isFile() && vfs.readFileSync(p).equals(bytes)) return p; } catch (e) { /* next name */ }
   }
 }
 
@@ -381,10 +384,7 @@ async function receiveShared(id) {
       if (res) {
         let name = res.headers.get('X-Name') || 'partage';
         try { name = decodeURIComponent(name); } catch (e) { /* keep it */ }
-        vfs.mkdirSync(SHARE_DIR, { recursive: true });
-        const p = freeName(name);
-        vfs.writeFileSync(p, new Uint8Array(await res.arrayBuffer()));
-        out.push(p);
+        out.push(storeReceived(name, new Uint8Array(await res.arrayBuffer())));
       }
       await c.delete(r);
     }
@@ -398,6 +398,38 @@ async function receiveShared(id) {
 // VIEW of a file (PEDIT01 VIEW), then the primary option menu when it ends
 function viewSel(file) {
   return { pgm: 'PEDIT01', parm: `VIEW '${file.replace(/'/g, '\'\'')}'`, newappl: 'ISR', newpool: true };
+}
+
+// VIEW of a received file while lspf is running: in a new logical screen (like START), so that the work in
+// progress is kept; F3 closes it and comes back to the previous screen.  No session: VIEW, then primary menu.
+function viewReceived(files) {
+  if (!files.length) return;
+  const s = state.session;
+  if (s && !state.ended && s.newScreen(viewSel(files[0]))) {
+    if (!$('menu').hidden) closeMenu();
+    if ($('install') && !$('install').hidden) closeInstall();
+  } else {
+    if (s && !state.ended) { try { s.pools.saveAll(); } catch (e) { /* ignore */ } }
+    startSession(viewSel(files[0]), () => startSession());
+  }
+  toast(files.length > 1 ? `${files.length} fichiers reçus dans ${SHARE_DIR} : ${path.basename(files[0])} est affiché.`
+    : `Fichier reçu : ${files[0]}`, 4000);
+}
+
+// Windows / macOS / ChromeOS: "Open with > ISPF" from the file explorer (manifest file_handlers).  The files are
+// copied into ~/partages like shared files.  With launch_handler focus-existing, a file opened while ISPF is
+// already running arrives in the same window.
+async function openLaunched(params) {
+  const out = [];
+  for (const h of (params && params.files) || []) {
+    try {
+      if (h.kind && h.kind !== 'file') continue;
+      const f = await h.getFile();
+      out.push(storeReceived(f.name, new Uint8Array(await f.arrayBuffer())));
+    } catch (e) { console.error('Opened file', e); toast('Fichier illisible : ' + e.message, 4000); }
+  }
+  if (out.length && vfs.backend) await vfs.backend.flush();
+  viewReceived(out);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -570,14 +602,16 @@ async function boot() {
   proc.exitHandler = (code) => {
     setTimeout(() => endSession(code ? `lspf s'est arrêté (code ${code}).` : 'Session lspf terminée.'), 0);
   };
-  if (shared.length) {
-    startSession(viewSel(shared[0]), () => startSession());
-    toast(shared.length > 1 ? `${shared.length} fichiers reçus dans ${SHARE_DIR} : ${path.basename(shared[0])} est affiché.`
-      : `Fichier reçu : ${shared[0]}`, 4000);
-  } else {
+  if (shared.length) viewReceived(shared);
+  else {
     if (shareId !== null) toast('Rien à ouvrir dans ce partage.', 3000);
     startSession();
     if (!isInstalled() && !loadSetting('installNever', false) && location.protocol !== 'file:') showInstall();
+  }
+
+  // files opened from the file explorer (after the session has started: they open in a new logical screen)
+  if (typeof window !== 'undefined' && 'launchQueue' in window) {
+    window.launchQueue.setConsumer((params) => { if (params && params.files && params.files.length) openLaunched(params); });
   }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -595,6 +629,7 @@ async function boot() {
 // Test / debugging hooks
 const LSPF = {
   vfs, state, boot, startSession, backup, decode, installAssets, seed, HOME, PROFILE, receiveShared, viewSel, showInstall, closeInstall,
+  storeReceived, openLaunched,
   text: () => (state.term ? state.term.text() : ''),
   key: (name, extra) => key(name, extra),
   type: (s) => { for (const ch of s) key('char', { ch }); },

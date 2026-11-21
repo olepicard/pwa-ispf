@@ -3,12 +3,12 @@
 //
 // Build the lspf PWA into www/ (no dependencies):
 //
-//   node build.js [--src ../node-lspf] [--out www]
+//   node build.js [--src ../node-lspf] [--out www] [--logo assets/ispf-logo.png]
 //
 //  www/lspf-bundle.js   node-lspf (lib/, apps/) + browser shims (src/) + embedded libraries
 //                       (plib, plib-node, mlib, help, rexx, doc) mounted read-only on /lspf
 //  www/sw.js            service worker (offline cache, versioned by the content)
-//  www/icons/*.png      icons generated here
+//  www/icons/*.png      icons generated here from the logo (dark drawing on white, 8-bit PNG)
 //  www/index.html, app.css, manifest.webmanifest   copied from public/
 //
 const fs = require('fs');
@@ -21,6 +21,7 @@ const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 && args[i + 1] 
 const HERE = __dirname;
 const SRC = path.resolve(HERE, opt('--src', '../node-lspf'));
 const OUT = path.resolve(HERE, opt('--out', 'www'));
+const LOGO = path.resolve(HERE, opt('--logo', 'assets/ispf-logo.png'));
 
 if (!fs.existsSync(path.join(SRC, 'lib', 'session.js'))) {
   console.error(`node-lspf not found in ${SRC} (use --src DIR)`);
@@ -82,7 +83,7 @@ const bundle = [
 ].join('\n');
 
 // ---------------------------------------------------------------------------------------------------------------
-// Icons (PNG written with zlib)
+// Icons (PNG read and written with zlib)
 // ---------------------------------------------------------------------------------------------------------------
 const CRC = (() => {
   const t = new Uint32Array(256);
@@ -102,40 +103,106 @@ function png(w, h, rgba) {
   for (let y = 0; y < h; y++) rgba.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
 }
-const hex = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16), 255];
-function segDist(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(px - ax - t * dx, py - ay - t * dy);
-}
-// A small 3270 screen: blue action bar, green prompt chevron, text lines, cursor, PF key bar
-function iconColor(x, y, maskable) {
-  if (maskable) { x = 0.5 + (x - 0.5) / 0.78; y = 0.5 + (y - 0.5) / 0.78; }
-  else {
-    const r = 0.2, cx = Math.min(Math.max(x, r), 1 - r), cy = Math.min(Math.max(y, r), 1 - r);
-    if (Math.hypot(x - cx, y - cy) > r) return null;
+// PNG reader (8-bit, non-interlaced: gray, RGB, palette, gray+alpha, RGBA) -> "ink" coverage per pixel:
+// darkness x opacity, 0 = paper, 1 = black.  The logo is black on white (assets/ispf-logo.png, --logo FILE).
+function readInk(file) {
+  const b = fs.readFileSync(file);
+  if (b.readUInt32BE(0) !== 0x89504e47) throw new Error(file + ': not a PNG file');
+  let o = 8, w = 0, h = 0, depth = 0, ct = 0, inter = 0, pal = null, trns = null;
+  const idat = [];
+  while (o < b.length) {
+    const len = b.readUInt32BE(o), type = b.toString('latin1', o + 4, o + 8), d = b.subarray(o + 8, o + 8 + len);
+    if (type === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; ct = d[9]; inter = d[12]; }
+    else if (type === 'PLTE') pal = d;
+    else if (type === 'tRNS') trns = d;
+    else if (type === 'IDAT') idat.push(d);
+    else if (type === 'IEND') break;
+    o += 12 + len;
   }
-  const inR = (x0, y0, x1, y1) => x >= x0 && x < x1 && y >= y0 && y < y1;
-  if (inR(0.16, 0.17, 0.84, 0.25)) return hex('#5b8cff');
-  if (segDist(x, y, 0.2, 0.36, 0.33, 0.47) < 0.03 || segDist(x, y, 0.33, 0.47, 0.2, 0.58) < 0.03) return hex('#3fcf5f');
-  if (inR(0.40, 0.44, 0.80, 0.50)) return hex('#30c8c8');
-  if (inR(0.20, 0.64, 0.62, 0.69)) return hex('#3fcf5f');
-  if (inR(0.66, 0.64, 0.74, 0.69)) return hex('#ffffff');
-  for (let k = 0; k < 4; k++) if (inR(0.16 + k * 0.175, 0.76, 0.16 + k * 0.175 + 0.14, 0.83)) return hex('#2b3a52');
-  return hex('#0d1117');
+  if (depth !== 8 || inter) throw new Error(`${file}: only 8-bit non-interlaced PNG files are supported`);
+  const bpp = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[ct];
+  const raw = zlib.inflateSync(Buffer.concat(idat)), stride = w * bpp;
+  const px = Buffer.alloc(stride * h);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], src = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    const cur = px.subarray(y * stride, (y + 1) * stride), up = y ? px.subarray((y - 1) * stride, y * stride) : null;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? cur[i - bpp] : 0, u = up ? up[i] : 0, c = up && i >= bpp ? up[i - bpp] : 0;
+      let v = src[i];
+      if (f === 1) v += a;
+      else if (f === 2) v += u;
+      else if (f === 3) v += (a + u) >> 1;
+      else if (f === 4) { const p = a + u - c, pa = Math.abs(p - a), pb = Math.abs(p - u), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? u : c; }
+      cur[i] = v & 255;
+    }
+  }
+  const ink = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const p = px.subarray(i * bpp, i * bpp + bpp);
+    let r, g, bl, al = 255;
+    if (ct === 0 || ct === 4) { r = g = bl = p[0]; if (ct === 4) al = p[1]; }
+    else if (ct === 3) { r = pal[p[0] * 3]; g = pal[p[0] * 3 + 1]; bl = pal[p[0] * 3 + 2]; if (trns && p[0] < trns.length) al = trns[p[0]]; }
+    else { r = p[0]; g = p[1]; bl = p[2]; if (ct === 6) al = p[3]; }
+    ink[i] = (1 - (0.2126 * r + 0.7152 * g + 0.0722 * bl) / 255) * (al / 255);
+  }
+  return { w, h, ink };
 }
-function icon(size, maskable) {
-  const S = 4, buf = Buffer.alloc(size * size * 4);
+
+// Logo cropped to its ink, as a summed-area table: exact box-filter average of any rectangle (any icon size)
+function logoSampler(file) {
+  const { w, h, ink } = readInk(file);
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (ink[y * w + x] > 0.25) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  if (x1 < 0) throw new Error(file + ': the logo is empty (dark drawing on a light or transparent background expected)');
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const sat = new Float64Array((cw + 1) * (ch + 1));
+  for (let y = 0; y < ch; y++) {
+    let row = 0;
+    for (let x = 0; x < cw; x++) { row += ink[(y0 + y) * w + x0 + x]; sat[(y + 1) * (cw + 1) + x + 1] = sat[y * (cw + 1) + x + 1] + row; }
+  }
+  // integral of the ink on [0,X]x[0,Y] in pixels (bilinear between grid points: exact for square pixels)
+  const F = (X, Y) => {
+    X = Math.min(Math.max(X, 0), cw); Y = Math.min(Math.max(Y, 0), ch);
+    const xi = Math.min(Math.floor(X), cw - 1), yi = Math.min(Math.floor(Y), ch - 1), fx = X - xi, fy = Y - yi;
+    const s = (a, c) => sat[c * (cw + 1) + a];
+    return s(xi, yi) * (1 - fx) * (1 - fy) + s(xi + 1, yi) * fx * (1 - fy) + s(xi, yi + 1) * (1 - fx) * fy + s(xi + 1, yi + 1) * fx * fy;
+  };
+  return {
+    aspect: ch / cw,
+    // ink of the rectangle [u0,u1]x[v0,v1] of the cropped logo (0..1 coordinates), in logo-pixel area
+    sum(u0, v0, u1, v1) {
+      const a = u0 * cw, b = u1 * cw, c = v0 * ch, d = v1 * ch;
+      return F(b, d) - F(a, d) - F(b, c) + F(a, c);
+    },
+    area: cw * ch,
+  };
+}
+
+// Icon: white rounded square ("any") or full white square ("maskable": logo inside the 80 % safe circle),
+// with the black logo centred.
+function icon(logo, size, maskable) {
+  const lw = maskable ? 0.66 : 0.8, lh = lw * logo.aspect;
+  const lx = (1 - lw) / 2, ly = (1 - lh) / 2;
+  const buf = Buffer.alloc(size * size * 4);
+  const S = 4, R = 0.18;
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
-      const acc = [0, 0, 0, 0];
-      for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
-        const c = iconColor((px + (sx + 0.5) / S) / size, (py + (sy + 0.5) / S) / size, maskable);
-        if (c) { acc[0] += c[0]; acc[1] += c[1]; acc[2] += c[2]; acc[3] += 255; }
+      let cover = 1;
+      if (!maskable) {     // anti-aliased rounded corners
+        cover = 0;
+        for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
+          const x = (px + (sx + 0.5) / S) / size, y = (py + (sy + 0.5) / S) / size;
+          const cx = Math.min(Math.max(x, R), 1 - R), cy = Math.min(Math.max(y, R), 1 - R);
+          if (Math.hypot(x - cx, y - cy) <= R) cover++;
+        }
+        cover /= S * S;
       }
-      const n = S * S, a = acc[3] / n, o = (py * size + px) * 4;
-      if (a) { buf[o] = Math.round(acc[0] / (acc[3] / 255)); buf[o + 1] = Math.round(acc[1] / (acc[3] / 255)); buf[o + 2] = Math.round(acc[2] / (acc[3] / 255)); }
-      buf[o + 3] = Math.round(a);
+      // pixel rectangle in logo coordinates; ink averaged over the whole pixel (logo outside = paper)
+      const u0 = (px / size - lx) / lw, u1 = ((px + 1) / size - lx) / lw, v0 = (py / size - ly) / lh, v1 = ((py + 1) / size - ly) / lh;
+      const k = Math.min(1, Math.max(0, logo.sum(u0, v0, u1, v1) / ((u1 - u0) * (v1 - v0) * logo.area)));
+      const g = Math.round(255 * (1 - k)), o = (py * size + px) * 4;
+      buf[o] = buf[o + 1] = buf[o + 2] = g;
+      buf[o + 3] = Math.round(255 * cover);
     }
   }
   return png(size, size, buf);
@@ -147,26 +214,15 @@ function icon(size, maskable) {
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, 'icons'), { recursive: true });
 for (const f of fs.readdirSync(path.join(HERE, 'public'), { withFileTypes: true })) {
-  if (f.isDirectory()) {
-    fs.cpSync(path.join(HERE, 'public', f.name), path.join(OUT, f.name), { recursive: true });
-  } else {
-    fs.copyFileSync(path.join(HERE, 'public', f.name), path.join(OUT, f.name));
-  }
+  if (f.isFile()) fs.copyFileSync(path.join(HERE, 'public', f.name), path.join(OUT, f.name));
 }
 fs.writeFileSync(path.join(OUT, 'lspf-bundle.js'), bundle);
+const logo = logoSampler(LOGO);
+const ICONS = [32, 48, 96, 144, 192, 256, 512].map((n) => [`icons/icon-${n}.png`, icon(logo, n, false)]);
+ICONS.push(['icons/icon-maskable-512.png', icon(logo, 512, true)]);
+for (const [name, data] of ICONS) fs.writeFileSync(path.join(OUT, name), data);
 
-const pubIcons = path.join(HERE, 'public', 'icons');
-if (fs.existsSync(path.join(pubIcons, 'icon-192.png'))) {
-  fs.copyFileSync(path.join(pubIcons, 'icon-192.png'), path.join(OUT, 'icons', 'icon-192.png'));
-  fs.copyFileSync(path.join(pubIcons, 'icon-512.png'), path.join(OUT, 'icons', 'icon-512.png'));
-  fs.copyFileSync(path.join(pubIcons, 'icon-maskable-512.png'), path.join(OUT, 'icons', 'icon-maskable-512.png'));
-} else {
-  fs.writeFileSync(path.join(OUT, 'icons', 'icon-192.png'), icon(192, false));
-  fs.writeFileSync(path.join(OUT, 'icons', 'icon-512.png'), icon(512, false));
-  fs.writeFileSync(path.join(OUT, 'icons', 'icon-maskable-512.png'), icon(512, true));
-}
-
-const cached = ['./', 'index.html', 'app.css', 'lspf-bundle.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
+const cached = ['./', 'index.html', 'app.css', 'lspf-bundle.js', 'manifest.webmanifest', ...ICONS.map(([name]) => name)];
 const hash = crypto.createHash('sha256');
 for (const f of cached.slice(1)) hash.update(fs.readFileSync(path.join(OUT, f)));
 const version = hash.digest('hex').slice(0, 12);
